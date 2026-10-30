@@ -55,7 +55,15 @@ const text = (v: unknown): string => {
 };
 
 export function parseFeed(xml: string): Newsletter[] {
-  const p = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: "@_", trimValues: true });
+  const p = new XMLParser({
+    ignoreAttributes: false,
+    attributeNamePrefix: "@_",
+    trimValues: true,
+    // Newsletterss emits <author><Name>; match tags case-insensitively.
+    transformTagName: (tag) => tag.toLowerCase(),
+    // Decode numeric/HTML entities such as &#39; in titles and names.
+    htmlEntities: true,
+  });
   const doc = p.parse(xml);
   const raw: unknown = doc?.feed?.entry ?? doc?.rss?.channel?.item ?? [];
   const entries = (Array.isArray(raw) ? raw : [raw]).filter(isRec);
@@ -68,7 +76,7 @@ export function parseFeed(xml: string): Newsletter[] {
       id: text(e.id) || text(e.guid) || link,
       title: text(e.title),
       sender: sender.trim(),
-      published: parseDate(text(e.published) || text(e.pubDate) || text(e.updated)),
+      published: parseDate(text(e.published) || text(e.pubdate) || text(e.updated)),
       link,
       html: text(e.content) || text(e.description) || text(e.summary),
     };
@@ -90,14 +98,26 @@ export class Store {
   }
 
   upsert(items: Newsletter[], toPlain: (html: string) => string): number {
-    const exists = this.db.prepare("SELECT 1 FROM newsletters WHERE id = ?");
+    const existing = this.db.prepare("SELECT title, sender FROM newsletters WHERE id = ?");
     const ins = this.db.prepare(
       "INSERT INTO newsletters (id,title,sender,published,link,html,plain,fetched_at) VALUES (?,?,?,?,?,?,?,?)",
     );
     const fts = this.db.prepare("INSERT INTO nl_fts (id,title,sender,plain) VALUES (?,?,?,?)");
+    const updMeta = this.db.prepare("UPDATE newsletters SET title = ?, sender = ? WHERE id = ?");
+    const updFts = this.db.prepare("UPDATE nl_fts SET title = ?, sender = ? WHERE id = ?");
     let added = 0;
     for (const n of items) {
-      if (!n.id || exists.get(n.id)) continue;
+      if (!n.id) continue;
+      // Rows come from the newsletters table schema above.
+      const row = existing.get(n.id) as { title: string; sender: string } | undefined;
+      if (row) {
+        // Re-seen entry: refresh metadata so parser fixes reach archived rows still in the feed.
+        if (row.title !== n.title || row.sender !== n.sender) {
+          updMeta.run(n.title, n.sender, n.id);
+          updFts.run(n.title, n.sender, n.id);
+        }
+        continue;
+      }
       const plain = toPlain(n.html);
       ins.run(n.id, n.title, n.sender, n.published, n.link, n.html, plain, new Date().toISOString());
       fts.run(n.id, n.title, n.sender, plain);

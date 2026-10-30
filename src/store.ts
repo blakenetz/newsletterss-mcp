@@ -10,9 +10,27 @@ export interface Newsletter {
   html: string;
 }
 
+export interface StoredNewsletter extends Newsletter {
+  plain: string;
+  fetched_at: string;
+}
+
+type Rec = Record<string, unknown>;
+const isRec = (v: unknown): v is Rec => typeof v === "object" && v !== null;
+
 const MONTHS: Record<string, number> = {
-  jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
-  jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
+  jan: 0,
+  feb: 1,
+  mar: 2,
+  apr: 3,
+  may: 4,
+  jun: 5,
+  jul: 6,
+  aug: 7,
+  sep: 8,
+  oct: 9,
+  nov: 10,
+  dec: 11,
 };
 
 /** Newsletterss dates look like "30 Oct 26 00:07 UTC" (2-digit year). */
@@ -23,29 +41,29 @@ export function parseDate(s: string | undefined): string {
     let y = Number(m[3]);
     if (y < 100) y += 2000;
     const d = new Date(Date.UTC(y, MONTHS[m[2].toLowerCase()] ?? 0, +m[1], +m[4], +m[5], +(m[6] ?? 0)));
-    if (!isNaN(d.getTime())) return d.toISOString();
+    if (!Number.isNaN(d.getTime())) return d.toISOString();
   }
   const d = new Date(s);
-  return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+  return Number.isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
 }
 
 const text = (v: unknown): string => {
   if (v == null) return "";
   if (typeof v === "string" || typeof v === "number") return String(v);
-  if (typeof v === "object" && "#text" in (v as any)) return String((v as any)["#text"]);
+  if (typeof v === "object" && "#text" in v) return String(v["#text"]);
   return "";
 };
 
 export function parseFeed(xml: string): Newsletter[] {
   const p = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: "@_", trimValues: true });
   const doc = p.parse(xml);
-  let entries = doc?.feed?.entry ?? doc?.rss?.channel?.item ?? [];
-  if (!Array.isArray(entries)) entries = [entries];
-  return entries.map((e: any): Newsletter => {
-    const links = Array.isArray(e.link) ? e.link : [e.link];
-    const link = links.map((l: any) => (typeof l === "string" ? l : l?.["@_href"])).find(Boolean) ?? "";
+  const raw: unknown = doc?.feed?.entry ?? doc?.rss?.channel?.item ?? [];
+  const entries = (Array.isArray(raw) ? raw : [raw]).filter(isRec);
+  return entries.map((e): Newsletter => {
+    const links: unknown[] = Array.isArray(e.link) ? e.link : [e.link];
+    const link = links.map((l) => (typeof l === "string" ? l : isRec(l) ? text(l["@_href"]) : "")).find(Boolean) ?? "";
     const author = e.author;
-    const sender = typeof author === "object" ? text(author.name) || text(author.email) : text(author);
+    const sender = isRec(author) ? text(author.name) || text(author.email) : text(author);
     return {
       id: text(e.id) || text(e.guid) || link,
       title: text(e.title),
@@ -74,7 +92,7 @@ export class Store {
   upsert(items: Newsletter[], toPlain: (html: string) => string): number {
     const exists = this.db.prepare("SELECT 1 FROM newsletters WHERE id = ?");
     const ins = this.db.prepare(
-      "INSERT INTO newsletters (id,title,sender,published,link,html,plain,fetched_at) VALUES (?,?,?,?,?,?,?,?)"
+      "INSERT INTO newsletters (id,title,sender,published,link,html,plain,fetched_at) VALUES (?,?,?,?,?,?,?,?)",
     );
     const fts = this.db.prepare("INSERT INTO nl_fts (id,title,sender,plain) VALUES (?,?,?,?)");
     let added = 0;
@@ -91,36 +109,57 @@ export class Store {
   list(opts: { since?: string; until?: string; sender?: string; limit: number }) {
     const where: string[] = [];
     const args: string[] = [];
-    if (opts.since) { where.push("published >= ?"); args.push(parseDate(opts.since)); }
-    if (opts.until) { where.push("published <= ?"); args.push(parseDate(opts.until)); }
-    if (opts.sender) { where.push("sender LIKE ?"); args.push(`%${opts.sender}%`); }
+    if (opts.since) {
+      where.push("published >= ?");
+      args.push(parseDate(opts.since));
+    }
+    if (opts.until) {
+      where.push("published <= ?");
+      args.push(parseDate(opts.until));
+    }
+    if (opts.sender) {
+      where.push("sender LIKE ?");
+      args.push(`%${opts.sender}%`);
+    }
     const sql = `SELECT id,title,sender,published,link,length(plain) AS chars FROM newsletters
-      ${where.length ? "WHERE " + where.join(" AND ") : ""} ORDER BY published DESC LIMIT ${opts.limit}`;
+      ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY published DESC LIMIT ${opts.limit}`;
     return this.db.prepare(sql).all(...args);
   }
 
   get(id: string) {
-    return this.db.prepare("SELECT * FROM newsletters WHERE id = ? OR id LIKE ?").get(id, `%${id}%`) as any;
+    return this.db.prepare("SELECT * FROM newsletters WHERE id = ? OR id LIKE ?").get(id, `%${id}%`) as
+      | StoredNewsletter
+      | undefined;
   }
 
   search(query: string, limit: number) {
     // Quote each term so punctuation in user queries doesn't break FTS syntax.
-    const q = query.split(/\s+/).filter(Boolean).map((t) => `"${t.replace(/"/g, "")}"`).join(" ");
-    return this.db.prepare(
-      `SELECT n.id,n.title,n.sender,n.published,n.link,
+    const q = query
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((t) => `"${t.replace(/"/g, "")}"`)
+      .join(" ");
+    return this.db
+      .prepare(
+        `SELECT n.id,n.title,n.sender,n.published,n.link,
         snippet(nl_fts, 3, '**', '**', '…', 24) AS snippet
        FROM nl_fts JOIN newsletters n ON n.id = nl_fts.id
-       WHERE nl_fts MATCH ? ORDER BY rank LIMIT ?`
-    ).all(q, limit);
+       WHERE nl_fts MATCH ? ORDER BY rank LIMIT ?`,
+      )
+      .all(q, limit);
   }
 
   senders() {
-    return this.db.prepare(
-      "SELECT sender, COUNT(*) AS count, MAX(published) AS latest FROM newsletters GROUP BY sender ORDER BY latest DESC"
-    ).all();
+    return this.db
+      .prepare(
+        "SELECT sender, COUNT(*) AS count, MAX(published) AS latest FROM newsletters GROUP BY sender ORDER BY latest DESC",
+      )
+      .all();
   }
 
   count(): number {
-    return (this.db.prepare("SELECT COUNT(*) AS c FROM newsletters").get() as any).c;
+    // COUNT(*) always yields exactly one row with a numeric c.
+    const row = this.db.prepare("SELECT COUNT(*) AS c FROM newsletters").get() as { c: number };
+    return row.c;
   }
 }

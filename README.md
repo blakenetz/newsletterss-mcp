@@ -12,11 +12,12 @@ archives everything into SQLite with full-text search, so history builds up over
 ## Run locally
 
 ```bash
-npm i && npm run build
+nvm install && npm i && npm run build   # Node version from .nvmrc
 FEED_URL=https://newsletterss.com/rss/you AUTH_TOKEN=xyz npm start   # http://localhost:3000/mcp
 ```
 
-Requires a current Node 22 release: older 22.x builds (e.g. 22.13) ship `node:sqlite` without FTS5.
+Development, CI and the Docker image use the Node version in `.nvmrc` (26.13.0 LTS). `package.json` `engines`
+allows `^22.16.0 || >=24.0.0`: earlier releases (including all of Node 23) ship `node:sqlite` without FTS5.
 
 ## Development
 

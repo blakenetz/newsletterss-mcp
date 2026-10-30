@@ -1,7 +1,8 @@
+import { createHash, timingSafeEqual } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import express from "express";
+import express, { type ErrorRequestHandler, type RequestHandler } from "express";
 import TurndownService from "turndown";
 import { z } from "zod";
 import { parseFeed, Store } from "./store.js";
@@ -10,10 +11,19 @@ const USERNAME = process.env.NEWSLETTERSS_USERNAME?.trim() ?? "";
 const DB_PATH = process.env.DB_PATH ?? "./newsletters.db";
 const POLL_MINUTES = Number(process.env.POLL_MINUTES ?? 15);
 const PORT = Number(process.env.PORT ?? 3000);
-const AUTH_TOKEN = process.env.AUTH_TOKEN; // optional: required as ?token= or Bearer for HTTP
+const AUTH_TOKEN = process.env.AUTH_TOKEN ?? ""; // HTTP mode: sent as Bearer header or ?token=
+const STDIO = process.argv.includes("--stdio");
+const MIN_TOKEN_LENGTH = 32;
+const FEED_TIMEOUT_MS = 30_000;
 
 if (!USERNAME) {
   console.error("NEWSLETTERSS_USERNAME is required (the <username> in https://newsletterss.com/rss/<username>)");
+  process.exit(1);
+}
+if (!STDIO && AUTH_TOKEN.length < MIN_TOKEN_LENGTH) {
+  console.error(
+    `AUTH_TOKEN is required in HTTP mode and must be at least ${MIN_TOKEN_LENGTH} characters (generate one with: openssl rand -hex 32)`,
+  );
   process.exit(1);
 }
 const FEED_URL = `https://newsletterss.com/rss/${encodeURIComponent(USERNAME)}`;
@@ -39,7 +49,10 @@ const toPlain = (html: string) =>
 const store = new Store(DB_PATH);
 
 async function refresh(): Promise<{ added: number; total: number }> {
-  const res = await fetch(FEED_URL, { headers: { "user-agent": "newsletterss-mcp/1.0" } });
+  const res = await fetch(FEED_URL, {
+    headers: { "user-agent": "newsletterss-mcp/1.0" },
+    signal: AbortSignal.timeout(FEED_TIMEOUT_MS),
+  });
   if (!res.ok) throw new Error(`Feed fetch failed: ${res.status}`);
   const added = store.upsert(parseFeed(await res.text()), toPlain);
   return { added, total: store.count() };
@@ -128,25 +141,29 @@ async function poll() {
   }
 }
 
-await poll();
+void poll(); // first poll runs in the background so a slow feed can't block startup
 setInterval(poll, POLL_MINUTES * 60_000).unref?.();
 
-if (process.argv.includes("--stdio")) {
+if (STDIO) {
   await buildServer().connect(new StdioServerTransport());
 } else {
+  const expectedToken = createHash("sha256").update(AUTH_TOKEN).digest();
   const app = express();
-  app.use(express.json({ limit: "4mb" }));
   app.get("/healthz", (_req, res) => {
     res.json({ ok: true, total: store.count() });
   });
-  app.all("/mcp", async (req, res) => {
-    if (AUTH_TOKEN) {
-      const got = (req.headers.authorization ?? "").replace(/^Bearer /, "") || String(req.query.token ?? "");
-      if (got !== AUTH_TOKEN) {
-        res.status(401).json({ error: "unauthorized" });
-        return;
-      }
+  const authenticate: RequestHandler = (req, res, next) => {
+    const header = req.headers.authorization ?? "";
+    const got = header.startsWith("Bearer ") ? header.slice("Bearer ".length) : String(req.query.token ?? "");
+    // Compare fixed-length digests so the check takes the same time regardless of where tokens differ.
+    if (!timingSafeEqual(createHash("sha256").update(got).digest(), expectedToken)) {
+      res.status(401).json({ error: "unauthorized" });
+      return;
     }
+    next();
+  };
+  // Authenticate before parsing so unauthenticated bodies are never read.
+  app.all("/mcp", authenticate, express.json({ limit: "4mb" }), async (req, res) => {
     // Stateless: fresh server+transport per request.
     const server = buildServer();
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
@@ -157,5 +174,13 @@ if (process.argv.includes("--stdio")) {
     await server.connect(transport);
     await transport.handleRequest(req, res, req.body);
   });
+  // Express's default error page includes stack traces; answer with bare JSON instead.
+  const onError: ErrorRequestHandler = (err, _req, res, next) => {
+    if (res.headersSent) return next(err);
+    const status = typeof err?.status === "number" ? err.status : 500;
+    if (status >= 500) console.error("[http]", err);
+    res.status(status).json({ error: status >= 500 ? "internal error" : "invalid request" });
+  };
+  app.use(onError);
   app.listen(PORT, () => console.error(`newsletterss-mcp on :${PORT}/mcp`));
 }

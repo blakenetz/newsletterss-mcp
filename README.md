@@ -71,6 +71,9 @@ npm run typecheck
 `main` is protected: changes land through pull requests, and the `quality` CI job
 (Biome, typecheck, build) must pass before merge.
 
+To verify against your real feed (tools, auth, persistence, parsing quality), follow
+[docs/e2e-testing.md](docs/e2e-testing.md).
+
 ## Claude Desktop (local, stdio)
 
 ```json

@@ -9,13 +9,13 @@ archives everything into SQLite with full-text search, so history builds up over
 
 ## Configuration
 
-| Variable                | Required             | Default                                               | Purpose                                                                                |
-| ----------------------- | -------------------- | ----------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| `NEWSLETTERSS_USERNAME` | yes                  | —                                                     | Your Newsletterss username; the server reads `https://newsletterss.com/rss/<username>` |
-| `AUTH_TOKEN`            | for HTTP deployments | unset                                                 | Shared secret clients must send to `/mcp` (see [Auth token](#auth-token))              |
-| `DB_PATH`               | no                   | `./newsletters.db` (`/data/newsletters.db` in Docker) | SQLite archive location                                                                |
-| `POLL_MINUTES`          | no                   | `15`                                                  | Feed polling interval                                                                  |
-| `PORT`                  | no                   | `3000`                                                | HTTP port                                                                              |
+| Variable                | Required               | Default                                               | Purpose                                                                                |
+| ----------------------- | ---------------------- | ----------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `NEWSLETTERSS_USERNAME` | yes                    | —                                                     | Your Newsletterss username; the server reads `https://newsletterss.com/rss/<username>` |
+| `AUTH_TOKEN`            | HTTP mode (≥ 32 chars) | —                                                     | Shared secret clients must send to `/mcp` (see [Auth token](#auth-token))              |
+| `DB_PATH`               | no                     | `./newsletters.db` (`/data/newsletters.db` in Docker) | SQLite archive location                                                                |
+| `POLL_MINUTES`          | no                     | `15`                                                  | Feed polling interval                                                                  |
+| `PORT`                  | no                     | `3000`                                                | HTTP port                                                                              |
 
 > The feed needs no login, so anyone who knows your username can read your inbox.
 > Treat `NEWSLETTERSS_USERNAME` like a password: keep it in `.env` or host secrets, never in commits.
@@ -28,10 +28,10 @@ cp .env.example .env
 
 ### Auth token
 
-`AUTH_TOKEN` protects the HTTP endpoint (`/mcp`). When it is set, every request must carry it, either as
-`Authorization: Bearer <AUTH_TOKEN>` or as `?token=<AUTH_TOKEN>`; anything else gets `401`. When it is unset,
-`/mcp` is open to anyone who can reach it, so **always set it on a public deployment**. `/healthz` is never
-protected, and stdio mode (Claude Desktop) ignores the token.
+`AUTH_TOKEN` protects the HTTP endpoint (`/mcp`). Every request must carry it, either as
+`Authorization: Bearer <AUTH_TOKEN>` or as `?token=<AUTH_TOKEN>`; anything else gets `401` before the request body
+is read. In HTTP mode the server refuses to start if `AUTH_TOKEN` is missing or shorter than 32 characters.
+`/healthz` is never protected, and stdio mode (Claude Desktop) ignores the token.
 
 1. Generate a long random value (any URL-safe string works; hex avoids escaping in the connector URL):
 

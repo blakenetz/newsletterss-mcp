@@ -13,6 +13,9 @@
     "lint:fix": "biome check --write ."
   },
   "license": "ISC",
+  "engines": {
+    "node": "^22.16.0 || >=24.0.0"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
     "express": "^5.3.0",

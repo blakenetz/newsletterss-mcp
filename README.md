@@ -9,13 +9,13 @@ archives everything into SQLite with full-text search, so history builds up over
 
 ## Configuration
 
-| Variable | Required | Default | Purpose |
-|---|---|---|---|
-| `NEWSLETTERSS_USERNAME` | yes | — | Your Newsletterss username; the server reads `https://newsletterss.com/rss/<username>` |
-| `AUTH_TOKEN` | for HTTP deployments | unset | Shared secret clients must send to `/mcp` (see [Auth token](#auth-token)) |
-| `DB_PATH` | no | `./newsletters.db` (`/data/newsletters.db` in Docker) | SQLite archive location |
-| `POLL_MINUTES` | no | `15` | Feed polling interval |
-| `PORT` | no | `3000` | HTTP port |
+| Variable                | Required             | Default                                               | Purpose                                                                                |
+| ----------------------- | -------------------- | ----------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `NEWSLETTERSS_USERNAME` | yes                  | —                                                     | Your Newsletterss username; the server reads `https://newsletterss.com/rss/<username>` |
+| `AUTH_TOKEN`            | for HTTP deployments | unset                                                 | Shared secret clients must send to `/mcp` (see [Auth token](#auth-token))              |
+| `DB_PATH`               | no                   | `./newsletters.db` (`/data/newsletters.db` in Docker) | SQLite archive location                                                                |
+| `POLL_MINUTES`          | no                   | `15`                                                  | Feed polling interval                                                                  |
+| `PORT`                  | no                   | `3000`                                                | HTTP port                                                                              |
 
 > The feed needs no login, so anyone who knows your username can read your inbox.
 > Treat `NEWSLETTERSS_USERNAME` like a password: keep it in `.env` or host secrets, never in commits.
@@ -78,11 +78,7 @@ npm run typecheck
   "mcpServers": {
     "newsletterss": {
       "command": "node",
-      "args": [
-        "--no-warnings",
-        "/abs/path/newsletterss-mcp/dist/server.js",
-        "--stdio"
-      ],
+      "args": ["--no-warnings", "/abs/path/newsletterss-mcp/dist/server.js", "--stdio"],
       "env": {
         "NEWSLETTERSS_USERNAME": "your-username",
         "DB_PATH": "/abs/path/newsletters.db"

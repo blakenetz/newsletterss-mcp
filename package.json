@@ -5,9 +5,9 @@
   "main": "dist/server.js",
   "scripts": {
     "build": "tsc",
-    "start": "node --no-warnings dist/server.js",
-    "stdio": "node --no-warnings dist/server.js --stdio",
-    "dev": "tsx src/server.ts",
+    "start": "node --env-file-if-exists=.env --no-warnings dist/server.js",
+    "stdio": "node --env-file-if-exists=.env --no-warnings dist/server.js --stdio",
+    "dev": "tsx --env-file-if-exists=.env src/server.ts",
     "typecheck": "tsc --noEmit",
     "lint": "biome check --error-on-warnings .",
     "lint:fix": "biome check --write ."

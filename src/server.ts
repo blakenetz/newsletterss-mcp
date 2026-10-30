@@ -6,16 +6,17 @@ import TurndownService from "turndown";
 import { z } from "zod";
 import { parseFeed, Store } from "./store.js";
 
-const FEED_URL = process.env.FEED_URL ?? ""; // e.g. https://newsletterss.com/rss/<username>
+const USERNAME = process.env.NEWSLETTERSS_USERNAME?.trim() ?? "";
 const DB_PATH = process.env.DB_PATH ?? "./newsletters.db";
 const POLL_MINUTES = Number(process.env.POLL_MINUTES ?? 15);
 const PORT = Number(process.env.PORT ?? 3000);
 const AUTH_TOKEN = process.env.AUTH_TOKEN; // optional: required as ?token= or Bearer for HTTP
 
-if (!FEED_URL) {
-  console.error("FEED_URL is required (your https://newsletterss.com/rss/<username> URL)");
+if (!USERNAME) {
+  console.error("NEWSLETTERSS_USERNAME is required (the <username> in https://newsletterss.com/rss/<username>)");
   process.exit(1);
 }
+const FEED_URL = `https://newsletterss.com/rss/${encodeURIComponent(USERNAME)}`;
 
 const td = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced" });
 td.remove(["style", "script", "head", "title", "meta"]);

@@ -1,0 +1,25 @@
+app = "newsletterss-mcp"
+primary_region = "iad"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = "off"     # keep polling
+  auto_start_machines = false
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    method = "GET"
+    path = "/healthz"
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "30s"         # startup waits for the first feed poll
+
+[mounts]
+  source = "data"
+  destination = "/data"          # Dockerfile sets DB_PATH=/data/newsletters.db
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory = "512mb"

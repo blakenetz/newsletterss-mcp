@@ -96,16 +96,32 @@ you want continuous history.
 
 ## Deploy (Fly.io, needs a volume for the DB)
 
+`fly.toml` is committed (app `newsletterss-mcp`, region `iad`). First-time setup:
+
 ```bash
-fly launch --no-deploy
-fly volumes create data --size 1
-# in fly.toml: [mounts] source="data" destination="/data"
+fly apps create newsletterss-mcp
+fly volumes create data --region iad --size 1 -a newsletterss-mcp   # single volume is intentional
 AUTH_TOKEN=$(openssl rand -hex 32) && echo "$AUTH_TOKEN"   # save this; Fly won't show it again
 fly secrets set NEWSLETTERSS_USERNAME=your-username AUTH_TOKEN="$AUTH_TOKEN"
-fly deploy
+fly deploy --ha=false
 ```
 
-Keep one machine always on (`min_machines_running = 1`, `auto_stop_machines = false`) so polling continues.
+Always deploy with `--ha=false`: each Machine needs its own volume, so a second Machine would keep a separate
+archive and poll the feed twice. One Machine stays always on (`min_machines_running = 1`,
+`auto_stop_machines = "off"`) so polling continues.
+
+### Continuous deployment
+
+Every push to `main` runs the `quality` job, then the `deploy` job (`flyctl deploy --remote-only --ha=false`).
+PRs never deploy, and deploys run one at a time without being cancelled. The job authenticates with an
+app-scoped deploy token stored as the `FLY_API_TOKEN` repository secret:
+
+```bash
+fly tokens create deploy -a newsletterss-mcp | gh secret set FLY_API_TOKEN
+```
+
+To revoke it, list tokens with `fly tokens list -a newsletterss-mcp` and run `fly tokens revoke <id>`, then
+create a new one the same way.
 
 ## Add to Claude
 
